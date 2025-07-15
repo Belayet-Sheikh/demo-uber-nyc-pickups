@@ -45,15 +45,24 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        # === START OF FINAL, DEFINITIVE DATA PROCESSING LOGIC ===
-        
+        # === START OF BULLETPROOF DATA PROCESSING LOGIC ===
+
+        # --- STEP 1: Standardize ALL column names for all DataFrames ---
+        # This removes spaces, converts to lowercase, solving the KeyError
+        df_gas.columns = df_gas.columns.str.strip().str.lower().str.replace(' ', '_')
+        df_ev.columns = df_ev.columns.str.strip().str.lower().str.replace(' ', '_')
+        df_used_us.columns = df_used_us.columns.str.strip().str.lower().str.replace(' ', '_')
+        df_used_europe.columns = df_used_europe.columns.str.strip().str.lower().str.replace(' ', '_')
+
+        # --- STEP 2: Process each DataFrame using the new, standardized column names ---
+
         # --- Process New Cars ---
-        df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
         df_gas = df_gas.rename(columns={'msrp': 'price'})
         df_gas['fuel_type'] = 'Gasoline'
-        df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
+        
         df_ev = df_ev.rename(columns={'model_year': 'year'})
         df_ev['fuel_type'] = 'Electric'
+        
         df_new_us_master = pd.concat([df_gas, df_ev], ignore_index=True, sort=False)
         final_new_cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
         for col in final_new_cols:
@@ -62,33 +71,35 @@ def load_and_prepare_data():
         df_new_us_master = df_new_us_master[final_new_cols].dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
-        # --- Process Used US Cars (Robust Method) ---
-        # Create a new, clean DataFrame with the column names we want.
-        df_used_us_master = pd.DataFrame()
-        df_used_us_master['make'] = df_used_us['manufacturer']
-        df_used_us_master['model'] = df_used_us['model']
-        df_used_us_master['year'] = df_used_us['year']
-        df_used_us_master['price'] = df_used_us['price']
-        df_used_us_master['odometer'] = df_used_us['odometer']
-        # Clean and filter this new DataFrame
-        df_used_us_master = df_used_us_master.dropna()
+
+        # --- Process Used US Cars ---
+        df_used_us_master = df_used_us.rename(columns={'manufacturer': 'make'})
+        used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_us_master = df_used_us_master[used_us_cols].dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
-
-        # --- Process Used Europe Cars (Robust Method) ---
-        # Create another new, clean DataFrame.
-        df_used_europe_master = pd.DataFrame()
-        df_used_europe_master['make'] = df_used_europe['Brand']
-        df_used_europe_master['model'] = df_used_europe['Model']
-        df_used_europe_master['year'] = df_used_europe['Year']
-        df_used_europe_master['price'] = df_used_europe['Price']
-        df_used_europe_master['odometer'] = df_used_europe['Kilometers']
-        # Clean and filter this new DataFrame
-        df_used_europe_master = df_used_europe_master.dropna()
+        
+        # --- Process Used Europe Cars ---
+        df_used_europe_master = df_used_europe.rename(columns={
+            'brand': 'make', 
+            'model': 'model', 
+            'year': 'year', 
+            'price': 'price', 
+            'kilometers': 'odometer'
+        })
+        used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_europe_master = df_used_europe_master[used_europe_cols].dropna()
         df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
         df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
 
+        # === END OF BULLETPROOF DATA PROCESSING LOGIC ===
+
+        return df_new_us_master, df_used_us_master, df_used_europe_master
+
+    except Exception as e:
+        st.error(f"An error occurred while loading or processing data: {e}")
+        st.stop()
         # === END OF FINAL, DEFINITIVE DATA PROCESSING LOGIC ===
 
         return df_new_us_master, df_used_us_master, df_used_europe_master
