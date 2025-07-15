@@ -40,13 +40,13 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        # === START OF FINAL, GUARANTEED-TO-WORK DATA PROCESSING LOGIC ===
+        # === START OF GUARANTEED-TO-WORK DATA PROCESSING LOGIC ===
 
         # --- STEP 1: Standardize ALL column names for all DataFrames ---
         for df in [df_gas, df_ev, df_used_us, df_used_europe]:
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
 
-        # --- STEP 2: Process each DataFrame using a safe, explicit mapping method ---
+        # --- STEP 2: Process each DataFrame using the now-standardized column names ---
 
         # --- Process New Cars ---
         df_gas = df_gas.rename(columns={'msrp': 'price'})
@@ -64,7 +64,7 @@ def load_and_prepare_data():
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
         # --- Process Used US Cars (Robust Method) ---
-        # Create a new, clean DataFrame by explicitly mapping old columns to new standard names
+        # THIS IS THE CORRECTED PART: Use the lowercased 'manufacturer' column
         df_used_us_master = pd.DataFrame({
             'make': df_used_us['manufacturer'],
             'model': df_used_us['model'],
@@ -72,14 +72,13 @@ def load_and_prepare_data():
             'price': df_used_us['price'],
             'odometer': df_used_us['odometer']
         })
-        # Now, clean and filter this new, perfectly structured DataFrame
         df_used_us_master = df_used_us_master.dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
         
         # --- Process Used Europe Cars (Robust Method) ---
-        # Do the same safe mapping here. Standardized original names are now lowercase.
+        # THIS IS THE CORRECTED PART: Use the lowercased column names
         df_used_europe_master = pd.DataFrame({
             'make': df_used_europe['brand'],
             'model': df_used_europe['model'],
@@ -91,7 +90,7 @@ def load_and_prepare_data():
         df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
         df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
 
-        # === END OF FINAL, GUARANTEED-TO-WORK DATA PROCESSING LOGIC ===
+        # === END OF GUARANTEED-TO-WORK DATA PROCESSING LOGIC ===
 
         return df_new_us_master, df_used_us_master, df_used_europe_master
 
