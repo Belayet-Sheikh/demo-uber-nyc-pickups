@@ -1,7 +1,3 @@
-
-
-
-
 # ==============================================================================
 # STEP 1: INSTALL LIBRARIES AND CONFIGURE API
 # ==============================================================================
@@ -23,11 +19,10 @@ st.set_page_config(page_title="Autovisory - AI Car Analyst", page_icon="🚗", l
 try:
     GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel('models/gemini-2.5-pro')
+    model = genai.GenerativeModel('models/gemini-pro')
 except Exception as e:
     st.error(f"Error loading API key or configuring the model: {e}")
     st.stop()
-
 
 
 @st.cache_data
@@ -100,13 +95,8 @@ def load_and_prepare_data():
     except Exception as e:
         st.error(f"An error occurred while loading or processing data: {e}")
         st.stop()
-        # === END OF FINAL, DEFINITIVE DATA PROCESSING LOGIC ===
 
-        return df_new_us_master, df_used_us_master, df_used_europe_master
 
-    except Exception as e:
-        st.error(f"An error occurred while loading or processing data: {e}")
-        st.stop()
 # Load the data
 df_new_us_master, df_used_us_master, df_used_europe_master = load_and_prepare_data()
 
