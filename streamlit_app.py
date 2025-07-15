@@ -45,46 +45,54 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        # === FINAL CORRECTED LOGIC ===
+        # === START OF FINAL, CORRECTED DATA PROCESSING LOGIC ===
         
-        # --- Process Gas Cars ---
+        # --- Process Gas Cars (Basic Renaming) ---
         df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
         df_gas = df_gas.rename(columns={'msrp': 'price'})
         df_gas['fuel_type'] = 'Gasoline'
-        # Ensure the 'electric_range' column exists, filling with 0
-        df_gas['electric_range'] = 0
 
-        # --- Process EV Cars ---
+        # --- Process EV Cars (Basic Renaming) ---
         df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
         df_ev = df_ev.rename(columns={'model_year': 'year'})
         df_ev['fuel_type'] = 'Electric'
-        # IMPORTANT: Manually create the columns that are missing in the EV dataset
-        df_ev['engine_hp'] = np.nan
-        df_ev['city_mpg'] = np.nan
-        df_ev['vehicle_style'] = 'N/A' # Use a placeholder like 'N/A' or np.nan
+        
+        # --- Combine the two raw dataframes. Pandas will align common columns
+        # and create NaNs for columns not present in the other.
+        df_new_us_master = pd.concat([df_gas, df_ev], ignore_index=True, sort=False)
 
-        # --- Create a single list of columns that both datasets will now have ---
-        cols_to_keep = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
-        
-        # Select only these columns from each dataframe. This is now safe.
-        df_gas_processed = df_gas[cols_to_keep]
-        df_ev_processed = df_ev[cols_to_keep]
+        # --- Define the FINAL list of columns we want ---
+        # This list represents our ideal, clean dataset structure.
+        final_cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
 
-        # Concatenate the processed dataframes
-        df_new_us_master = pd.concat([df_gas_processed, df_ev_processed], ignore_index=True)
+        # --- Now, ensure all these final columns exist in the master dataframe ---
+        # For any column in our ideal list that is not in the master dataframe,
+        # create it and fill it with a default value (like np.nan or 0).
+        for col in final_cols:
+            if col not in df_new_us_master.columns:
+                if col == 'electric_range':
+                    df_new_us_master[col] = 0 # Default range is 0 for non-EVs
+                else:
+                    df_new_us_master[col] = np.nan # Default for other missing stats
         
-        # === END OF FINAL CORRECTION ===
+        # Now we can safely subset to just the columns we want, in the order we want.
+        df_new_us_master = df_new_us_master[final_cols]
         
+        # === END OF FINAL, CORRECTED DATA PROCESSING LOGIC ===
+
+        # --- Continue with the rest of the processing ---
         df_new_us_master = df_new_us_master.dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
+        # --- Process Used US Cars ---
         df_used_us = df_used_us.rename(columns={'manufacturer': 'make'})
         used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
         df_used_us_master = df_used_us[used_us_cols].dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
-
+        
+        # --- Process Used Europe Cars ---
         df_used_europe = df_used_europe.rename(columns={'Brand': 'make', 'Model': 'model', 'Year': 'year', 'Price': 'price', 'Kilometers': 'odometer'})
         used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
         df_used_europe_master = df_used_europe[used_europe_cols].dropna()
@@ -96,8 +104,6 @@ def load_and_prepare_data():
     except Exception as e:
         st.error(f"An error occurred while loading or processing data: {e}")
         st.stop()
-
-
 # Load the data
 df_new_us_master, df_used_us_master, df_used_europe_master = load_and_prepare_data()
 
