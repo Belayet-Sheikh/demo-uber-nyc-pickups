@@ -40,12 +40,12 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        # === START OF BULLETPROOF DATA PROCESSING LOGIC ===
+        # === START OF FINAL CORRECTED DATA PROCESSING LOGIC ===
 
         # --- STEP 1: Standardize ALL column names for all DataFrames ---
-        # This removes spaces, converts to lowercase, solving the KeyError
+        # This new line correctly chains all string operations.
         for df in [df_gas, df_ev, df_used_us, df_used_europe]:
-            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').replace('-', '_')
+            df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
 
         # --- STEP 2: Process each DataFrame using the new, standardized column names ---
 
@@ -64,39 +64,31 @@ def load_and_prepare_data():
         df_new_us_master = df_new_us_master[final_new_cols].dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
-        # --- Process Used US Cars (Robust Method) ---
-        # Create a new, clean DataFrame by mapping the standardized old names to the new names.
-        df_used_us_master = pd.DataFrame({
-            'make': df_used_us['manufacturer'],
-            'model': df_used_us['model'],
-            'year': df_used_us['year'],
-            'price': df_used_us['price'],
-            'odometer': df_used_us['odometer']
-        })
-        df_used_us_master = df_used_us_master.dropna()
+
+        # --- Process Used US Cars ---
+        df_used_us_master = df_used_us.rename(columns={'manufacturer': 'make'})
+        used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_us_master = df_used_us_master[used_us_cols].dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
         
-        # --- Process Used Europe Cars (Robust Method) ---
-        # Same safe mapping method here. The original column names are now lowercase.
-        df_used_europe_master = pd.DataFrame({
-            'make': df_used_europe['brand'],
-            'model': df_used_europe['model'],
-            'year': df_used_europe['year'],
-            'price': df_used_europe['price'],
-            'odometer': df_used_europe['kilometers']
+        # --- Process Used Europe Cars ---
+        df_used_europe_master = df_used_europe.rename(columns={
+            'brand': 'make', 
+            'kilometers': 'odometer'
         })
-        df_used_europe_master = df_used_europe_master.dropna()
+        used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_europe_master = df_used_europe_master[used_europe_cols].dropna()
         df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
         df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
 
-        # === END OF BULLETPROOF DATA PROCESSING LOGIC ===
+        # === END OF FINAL CORRECTED DATA PROCESSING LOGIC ===
 
         return df_new_us_master, df_used_us_master, df_used_europe_master
 
     except Exception as e:
-        st.error(f"An error occurred during data processing. Please check the column names in your source CSV files. Error: {e}")
+        st.error(f"An error occurred while loading or processing data: {e}")
         st.stop()
 
 
@@ -106,6 +98,7 @@ df_new_us_master, df_used_us_master, df_used_europe_master = load_and_prepare_da
 
 # ==============================================================================
 # STEP 3: AI INTENT & RESPONSE LOGIC
+# (This section and below are unchanged)
 # ==============================================================================
 
 def determine_next_action(history, user_query):
