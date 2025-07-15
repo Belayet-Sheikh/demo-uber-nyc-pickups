@@ -45,59 +45,51 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        # === START OF FINAL, CORRECTED DATA PROCESSING LOGIC ===
+        # === START OF FINAL, DEFINITIVE DATA PROCESSING LOGIC ===
         
-        # --- Process Gas Cars (Basic Renaming) ---
+        # --- Process New Cars ---
         df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
         df_gas = df_gas.rename(columns={'msrp': 'price'})
         df_gas['fuel_type'] = 'Gasoline'
-
-        # --- Process EV Cars (Basic Renaming) ---
         df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
         df_ev = df_ev.rename(columns={'model_year': 'year'})
         df_ev['fuel_type'] = 'Electric'
-        
-        # --- Combine the two raw dataframes. Pandas will align common columns
-        # and create NaNs for columns not present in the other.
         df_new_us_master = pd.concat([df_gas, df_ev], ignore_index=True, sort=False)
-
-        # --- Define the FINAL list of columns we want ---
-        # This list represents our ideal, clean dataset structure.
-        final_cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
-
-        # --- Now, ensure all these final columns exist in the master dataframe ---
-        # For any column in our ideal list that is not in the master dataframe,
-        # create it and fill it with a default value (like np.nan or 0).
-        for col in final_cols:
+        final_new_cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
+        for col in final_new_cols:
             if col not in df_new_us_master.columns:
-                if col == 'electric_range':
-                    df_new_us_master[col] = 0 # Default range is 0 for non-EVs
-                else:
-                    df_new_us_master[col] = np.nan # Default for other missing stats
-        
-        # Now we can safely subset to just the columns we want, in the order we want.
-        df_new_us_master = df_new_us_master[final_cols]
-        
-        # === END OF FINAL, CORRECTED DATA PROCESSING LOGIC ===
-
-        # --- Continue with the rest of the processing ---
-        df_new_us_master = df_new_us_master.dropna(subset=['year', 'make', 'model'])
+                df_new_us_master[col] = 0 if col == 'electric_range' else np.nan
+        df_new_us_master = df_new_us_master[final_new_cols].dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
-        # --- Process Used US Cars ---
-        df_used_us = df_used_us.rename(columns={'manufacturer': 'make'})
-        used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
-        df_used_us_master = df_used_us[used_us_cols].dropna()
+        # --- Process Used US Cars (Robust Method) ---
+        # Create a new, clean DataFrame with the column names we want.
+        df_used_us_master = pd.DataFrame()
+        df_used_us_master['make'] = df_used_us['manufacturer']
+        df_used_us_master['model'] = df_used_us['model']
+        df_used_us_master['year'] = df_used_us['year']
+        df_used_us_master['price'] = df_used_us['price']
+        df_used_us_master['odometer'] = df_used_us['odometer']
+        # Clean and filter this new DataFrame
+        df_used_us_master = df_used_us_master.dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
-        
-        # --- Process Used Europe Cars ---
-        df_used_europe = df_used_europe.rename(columns={'Brand': 'make', 'Model': 'model', 'Year': 'year', 'Price': 'price', 'Kilometers': 'odometer'})
-        used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
-        df_used_europe_master = df_used_europe[used_europe_cols].dropna()
+
+        # --- Process Used Europe Cars (Robust Method) ---
+        # Create another new, clean DataFrame.
+        df_used_europe_master = pd.DataFrame()
+        df_used_europe_master['make'] = df_used_europe['Brand']
+        df_used_europe_master['model'] = df_used_europe['Model']
+        df_used_europe_master['year'] = df_used_europe['Year']
+        df_used_europe_master['price'] = df_used_europe['Price']
+        df_used_europe_master['odometer'] = df_used_europe['Kilometers']
+        # Clean and filter this new DataFrame
+        df_used_europe_master = df_used_europe_master.dropna()
         df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
         df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
+
+        # === END OF FINAL, DEFINITIVE DATA PROCESSING LOGIC ===
 
         return df_new_us_master, df_used_us_master, df_used_europe_master
 
