@@ -30,13 +30,11 @@ except Exception as e:
 
 
 @st.cache_data
-@st.cache_data
+
 def load_and_prepare_data():
     """Loads all datasets and prepares them for the app."""
     try:
-        # === NEW CODE: Load data from GitHub Raw URLs ===
-
-        # === CORRECT URLs POINTING TO THE REPOSITORY WITH THE DATA ===
+        # Load data from GitHub Raw URLs
         url_gas = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-AI-Carbot/main/Data/data.csv"
         url_ev = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-AI-Carbot/main/Data/electric-vehicle-population-data.csv"
         url_used_us = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-AI-Carbot/main/Data/vehicles.csv"
@@ -47,28 +45,31 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
-        
-        
-        # === END OF NEW CODE ===
-
         # --- Process Gas Cars ---
         df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
         df_gas = df_gas.rename(columns={'msrp': 'price'})
         df_gas['fuel_type'] = 'Gasoline'
-        df_gas['electric_range'] = 0
 
         # --- Process EV Cars ---
         df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
         df_ev = df_ev.rename(columns={'model_year': 'year'})
-        df_ev['price'] = np.nan
-        df_ev['engine_hp'] = np.nan
-        df_ev['city_mpg'] = np.nan
         df_ev['fuel_type'] = 'Electric'
-        df_ev['vehicle_style'] = 'Electric'
 
-        # --- Create Master Datasets ---
-        cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
-        df_new_us_master = pd.concat([df_gas[cols], df_ev[cols]], ignore_index=True).dropna(subset=['year', 'make', 'model'])
+        # === CORRECTED LOGIC: Concatenate first, then select columns ===
+        # Combine the two dataframes. Pandas will automatically align columns.
+        df_new_us_master = pd.concat([df_gas, df_ev], ignore_index=True)
+        
+        # Define the exact columns we want to keep in our final master dataframe
+        cols_to_keep = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
+        
+        # Select only these columns. This is now safe.
+        df_new_us_master = df_new_us_master[cols_to_keep]
+        
+        # Now we can safely fill in missing values
+        df_new_us_master['electric_range'] = df_new_us_master['electric_range'].fillna(0)
+        # === END OF CORRECTION ===
+
+        df_new_us_master = df_new_us_master.dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
         df_used_us = df_used_us.rename(columns={'manufacturer': 'make'})
@@ -86,13 +87,8 @@ def load_and_prepare_data():
 
         return df_new_us_master, df_used_us_master, df_used_europe_master
 
-    except FileNotFoundError as e:
-        # This error is now unlikely, but we'll keep it as a safeguard.
-        st.error(f"ERROR: A data URL is broken or the file is missing from the repository - {e}.")
-        st.stop()
     except Exception as e:
-        # A general error for other issues, like network problems.
-        st.error(f"An error occurred while loading data: {e}")
+        st.error(f"An error occurred while loading or processing data: {e}")
         st.stop()
 
 
