@@ -29,8 +29,8 @@ except Exception as e:
     st.stop()
 
 
-@st.cache_data
 
+@st.cache_data
 def load_and_prepare_data():
     """Loads all datasets and prepares them for the app."""
     try:
@@ -45,30 +45,36 @@ def load_and_prepare_data():
         df_used_us = pd.read_csv(url_used_us)
         df_used_europe = pd.read_csv(url_used_europe)
 
+        # === FINAL CORRECTED LOGIC ===
+        
         # --- Process Gas Cars ---
         df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
         df_gas = df_gas.rename(columns={'msrp': 'price'})
         df_gas['fuel_type'] = 'Gasoline'
+        # Ensure the 'electric_range' column exists, filling with 0
+        df_gas['electric_range'] = 0
 
         # --- Process EV Cars ---
         df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
         df_ev = df_ev.rename(columns={'model_year': 'year'})
         df_ev['fuel_type'] = 'Electric'
+        # IMPORTANT: Manually create the columns that are missing in the EV dataset
+        df_ev['engine_hp'] = np.nan
+        df_ev['city_mpg'] = np.nan
+        df_ev['vehicle_style'] = 'N/A' # Use a placeholder like 'N/A' or np.nan
 
-        # === CORRECTED LOGIC: Concatenate first, then select columns ===
-        # Combine the two dataframes. Pandas will automatically align columns.
-        df_new_us_master = pd.concat([df_gas, df_ev], ignore_index=True)
-        
-        # Define the exact columns we want to keep in our final master dataframe
+        # --- Create a single list of columns that both datasets will now have ---
         cols_to_keep = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
         
-        # Select only these columns. This is now safe.
-        df_new_us_master = df_new_us_master[cols_to_keep]
-        
-        # Now we can safely fill in missing values
-        df_new_us_master['electric_range'] = df_new_us_master['electric_range'].fillna(0)
-        # === END OF CORRECTION ===
+        # Select only these columns from each dataframe. This is now safe.
+        df_gas_processed = df_gas[cols_to_keep]
+        df_ev_processed = df_ev[cols_to_keep]
 
+        # Concatenate the processed dataframes
+        df_new_us_master = pd.concat([df_gas_processed, df_ev_processed], ignore_index=True)
+        
+        # === END OF FINAL CORRECTION ===
+        
         df_new_us_master = df_new_us_master.dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
