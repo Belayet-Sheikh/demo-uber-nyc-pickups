@@ -43,6 +43,7 @@ def load_and_prepare_data():
         # === START OF GUARANTEED-TO-WORK DATA PROCESSING LOGIC ===
 
         # --- STEP 1: Standardize ALL column names for all DataFrames ---
+        # This removes spaces, converts to lowercase, and replaces hyphens. This is the key fix.
         for df in [df_gas, df_ev, df_used_us, df_used_europe]:
             df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_').str.replace('-', '_')
 
@@ -63,30 +64,23 @@ def load_and_prepare_data():
         df_new_us_master = df_new_us_master[final_new_cols].dropna(subset=['year', 'make', 'model'])
         df_new_us_master['year'] = df_new_us_master['year'].astype(int)
 
-        # --- Process Used US Cars (Robust Method) ---
-        # THIS IS THE CORRECTED PART: Use the lowercased 'manufacturer' column
-        df_used_us_master = pd.DataFrame({
-            'make': df_used_us['manufacturer'],
-            'model': df_used_us['model'],
-            'year': df_used_us['year'],
-            'price': df_used_us['price'],
-            'odometer': df_used_us['odometer']
-        })
-        df_used_us_master = df_used_us_master.dropna()
+        # --- Process Used US Cars ---
+        # This now safely renames the already-lowercased 'manufacturer' column.
+        df_used_us = df_used_us.rename(columns={'manufacturer': 'make'})
+        used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_us_master = df_used_us[used_us_cols].dropna()
         df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
         df_used_us_master['year'] = df_used_us_master['year'].astype(int)
         df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
         
-        # --- Process Used Europe Cars (Robust Method) ---
-        # THIS IS THE CORRECTED PART: Use the lowercased column names
-        df_used_europe_master = pd.DataFrame({
-            'make': df_used_europe['brand'],
-            'model': df_used_europe['model'],
-            'year': df_used_europe['year'],
-            'price': df_used_europe['price'],
-            'odometer': df_used_europe['kilometers']
+        # --- Process Used Europe Cars ---
+        # This now safely renames the already-lowercased columns.
+        df_used_europe = df_used_europe.rename(columns={
+            'brand': 'make', 
+            'kilometers': 'odometer'
         })
-        df_used_europe_master = df_used_europe_master.dropna()
+        used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_europe_master = df_used_europe[used_europe_cols].dropna()
         df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
         df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
 
