@@ -1,194 +1,373 @@
-# -*- coding: utf-8 -*-
-# Copyright 2018-2022 Streamlit Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
 
-"""An example of showing geographic data."""
 
-import os
 
-import altair as alt
-import numpy as np
-import pandas as pd
-import pydeck as pdk
+
+# ==============================================================================
+# STEP 1: INSTALL LIBRARIES AND CONFIGURE API
+# ==============================================================================
 import streamlit as st
+import google.generativeai as genai
+import pandas as pd
+import numpy as np
+import json
+import re
 
-# SETTING PAGE CONFIG TO WIDE MODE AND ADDING A TITLE AND FAVICON
-st.set_page_config(layout="wide", page_title="NYC Ridesharing Demo", page_icon=":taxi:")
+# ==============================================================================
+# STEP 2: LOAD & PREPARE DATASETS WITH CACHING
+# ==============================================================================
 
+# --- Page and Model Configuration ---
+st.set_page_config(page_title="Autovisory - AI Car Analyst", page_icon="🚗", layout="wide")
 
-# LOAD DATA ONCE
-@st.cache_resource
-def load_data():
-    path = "uber-raw-data-sep14.csv.gz"
-    if not os.path.isfile(path):
-        path = f"https://github.com/streamlit/demo-uber-nyc-pickups/raw/main/{path}"
-
-    data = pd.read_csv(
-        path,
-        nrows=100000,  # approx. 10% of data
-        names=[
-            "date/time",
-            "lat",
-            "lon",
-        ],  # specify names directly since they don't change
-        skiprows=1,  # don't read header since names specified directly
-        usecols=[0, 1, 2],  # doesn't load last column, constant value "B02512"
-        parse_dates=[
-            "date/time"
-        ],  # set as datetime instead of converting after the fact
-    )
-
-    return data
+# --- Load API Key and Configure AI Model ---
+try:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    genai.configure(api_key=GOOGLE_API_KEY)
+    model = genai.GenerativeModel('models/gemini-2.5-pro')
+except Exception as e:
+    st.error(f"Error loading API key or configuring the model: {e}")
+    st.stop()
 
 
-# FUNCTION FOR AIRPORT MAPS
-def map(data, lat, lon, zoom):
-    st.write(
-        pdk.Deck(
-            map_style="mapbox://styles/mapbox/light-v9",
-            initial_view_state={
-                "latitude": lat,
-                "longitude": lon,
-                "zoom": zoom,
-                "pitch": 50,
-            },
-            layers=[
-                pdk.Layer(
-                    "HexagonLayer",
-                    data=data,
-                    get_position=["lon", "lat"],
-                    radius=100,
-                    elevation_scale=4,
-                    elevation_range=[0, 1000],
-                    pickable=True,
-                    extruded=True,
-                ),
-            ],
-        )
-    )
-
-
-# FILTER DATA FOR A SPECIFIC HOUR, CACHE
 @st.cache_data
-def filterdata(df, hour_selected):
-    return df[df["date/time"].dt.hour == hour_selected]
-
-
-# CALCULATE MIDPOINT FOR GIVEN SET OF DATA
 @st.cache_data
-def mpoint(lat, lon):
-    return (np.average(lat), np.average(lon))
-
-
-# FILTER DATA BY HOUR
-@st.cache_data
-def histdata(df, hr):
-    filtered = data[
-        (df["date/time"].dt.hour >= hr) & (df["date/time"].dt.hour < (hr + 1))
-    ]
-
-    hist = np.histogram(filtered["date/time"].dt.minute, bins=60, range=(0, 60))[0]
-
-    return pd.DataFrame({"minute": range(60), "pickups": hist})
-
-
-# STREAMLIT APP LAYOUT
-data = load_data()
-
-# LAYING OUT THE TOP SECTION OF THE APP
-row1_1, row1_2 = st.columns((2, 3))
-
-# SEE IF THERE'S A QUERY PARAM IN THE URL (e.g. ?pickup_hour=2)
-# THIS ALLOWS YOU TO PASS A STATEFUL URL TO SOMEONE WITH A SPECIFIC HOUR SELECTED,
-# E.G. https://share.streamlit.io/streamlit/demo-uber-nyc-pickups/main?pickup_hour=2
-if not st.session_state.get("url_synced", False):
+def load_and_prepare_data():
+    """Loads all datasets and prepares them for the app."""
     try:
-        pickup_hour = int(st.query_params["pickup_hour"])
-        st.session_state["pickup_hour"] = pickup_hour
-        st.session_state["url_synced"] = True
-    except KeyError:
-        pass
+        # === NEW CODE: Load data from GitHub Raw URLs ===
+        url_gas = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-Carbot/main/Data/data.csv"
+        url_ev = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-Carbot/main/Data/electric-vehicle-population-data.csv"
+        url_used_us = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-Carbot/main/Data/vehicles.csv"
+        url_used_europe = "https://raw.githubusercontent.com/Belayet-Sheikh/Autovisory-Carbot/main/Data/car_price.csv"
+
+        df_gas = pd.read_csv(url_gas)
+        df_ev = pd.read_csv(url_ev)
+        df_used_us = pd.read_csv(url_used_us)
+        df_used_europe = pd.read_csv(url_used_europe)
+        # === END OF NEW CODE ===
+
+        # --- Process Gas Cars ---
+        df_gas.columns = df_gas.columns.str.replace(' ', '_').str.lower()
+        df_gas = df_gas.rename(columns={'msrp': 'price'})
+        df_gas['fuel_type'] = 'Gasoline'
+        df_gas['electric_range'] = 0
+
+        # --- Process EV Cars ---
+        df_ev.columns = df_ev.columns.str.replace(' ', '_').str.lower()
+        df_ev = df_ev.rename(columns={'model_year': 'year'})
+        df_ev['price'] = np.nan
+        df_ev['engine_hp'] = np.nan
+        df_ev['city_mpg'] = np.nan
+        df_ev['fuel_type'] = 'Electric'
+        df_ev['vehicle_style'] = 'Electric'
+
+        # --- Create Master Datasets ---
+        cols = ['make', 'model', 'year', 'price', 'vehicle_style', 'engine_hp', 'city_mpg', 'fuel_type', 'electric_range']
+        df_new_us_master = pd.concat([df_gas[cols], df_ev[cols]], ignore_index=True).dropna(subset=['year', 'make', 'model'])
+        df_new_us_master['year'] = df_new_us_master['year'].astype(int)
+
+        df_used_us = df_used_us.rename(columns={'manufacturer': 'make'})
+        used_us_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_us_master = df_used_us[used_us_cols].dropna()
+        df_used_us_master = df_used_us_master[df_used_us_master['price'].between(100, 250000)]
+        df_used_us_master['year'] = df_used_us_master['year'].astype(int)
+        df_used_us_master['odometer'] = df_used_us_master['odometer'].astype(int)
+
+        df_used_europe = df_used_europe.rename(columns={'Brand': 'make', 'Model': 'model', 'Year': 'year', 'Price': 'price', 'Kilometers': 'odometer'})
+        used_europe_cols = ['make', 'model', 'year', 'price', 'odometer']
+        df_used_europe_master = df_used_europe[used_europe_cols].dropna()
+        df_used_europe_master['year'] = pd.to_numeric(df_used_europe_master['year'], errors='coerce').dropna().astype(int)
+        df_used_europe_master['odometer'] = pd.to_numeric(df_used_europe_master['odometer'], errors='coerce').dropna().astype(int)
+
+        return df_new_us_master, df_used_us_master, df_used_europe_master
+
+    except FileNotFoundError as e:
+        # This error is now unlikely, but we'll keep it as a safeguard.
+        st.error(f"ERROR: A data URL is broken or the file is missing from the repository - {e}.")
+        st.stop()
+    except Exception as e:
+        # A general error for other issues, like network problems.
+        st.error(f"An error occurred while loading data: {e}")
+        st.stop()
 
 
-# IF THE SLIDER CHANGES, UPDATE THE QUERY PARAM
-def update_query_params():
-    hour_selected = st.session_state["pickup_hour"]
-    st.query_params["pickup_hour"] = hour_selected
+# Load the data
+df_new_us_master, df_used_us_master, df_used_europe_master = load_and_prepare_data()
 
 
-with row1_1:
-    st.title("NYC Uber Ridesharing Data")
-    hour_selected = st.slider(
-        "Select hour of pickup", 0, 23, key="pickup_hour", on_change=update_query_params
-    )
+# ==============================================================================
+# STEP 3: AI INTENT & RESPONSE LOGIC
+# ==============================================================================
+
+def determine_next_action(history, user_query):
+    history_str = "\n".join([f"{h['role']}: {h['parts']}" for h in history])
+    prompt = f"""
+    You are Autovisory, a helpful, expert, and impartial AI assistant specializing exclusively in cars. Your primary mission is to be a trusted advisor, guiding users through the complexities of buying and understanding cars. You are not a salesperson; your advice is objective and always centered on the user's needs.
 
 
-with row1_2:
-    st.write(
-        """
-    ##
-    Examining how Uber pickups vary over time in New York City's and at its major regional airports.
-    By sliding the slider on the left you can view different slices of time and explore different transportation trends.
+    Step 1: Initial Query Assessment
+First, analyze the user's query.
+If the query is about anything NOT related to cars (e.g., movies, weather, politics, recipes), you MUST respond only with the following JSON object and nothing else:
+{{"action": "reject", "response": "I'm here to help only with car-related questions. Could you ask something about cars?"}}
+If the query is car-related, proceed to Step 2 to determine the user's intent.
+
+    Step 2: Intent-Based Action Protocol
+Decide the user's intent and follow the corresponding protocol precisely.
+Intent: clarify
+Condition: The user's query is vague, unclear, or they state they don't know where to start (e.g., "What car should I buy?", "I need a new car").
+Action: Your goal is to understand their needs. Ask a series of clarifying questions to gather essential information. Do not suggest any cars yet. Your response should be a friendly set of questions.
+Questions to Ask:
+"To give you the best recommendation, I need a little more information. Could you tell me about:"
+"1. Budget: What is your approximate budget for the car?"
+"2. Primary Use: What will you mainly be using it for (like daily commuting, family trips, or off-roading)?"
+"3. Passengers: How many people will you typically need to carry?"
+"4. Priorities: What are the top 3 most important things for you in a car (e.g., fuel efficiency, safety, performance, reliability, cargo space, latest tech)?"
+"5. Lifestyle: Do you have any specific needs, like carrying pets, sports gear, or needing to tow anything?"
+Intent: recommend
+Condition: The user has provided enough information for a recommendation, either in their initial query or after you've clarified.
+Action: Suggest 2-3 well-suited car models. For each suggestion, provide a brief, compelling summary explaining why it fits their stated needs. Mention key strengths related to their priorities.
+Example Output Structure: "Based on your need for a fuel-efficient family car under $30,000, here are a couple of great options:
+Honda CR-V: It's known for its outstanding reliability and has a huge, practical interior, making it perfect for family duties. Its fuel economy is also excellent for its class.
+Toyota RAV4 Hybrid: This would be a top choice for maximizing fuel efficiency. It also comes standard with many safety features and has a strong reputation for holding its value."
+Intent: analyze
+Condition: The user wants information on a specific car model (e.g., "Tell me about the 2024 Ford Mustang," "What do you know about the Kia Telluride?").
+Action: Provide a comprehensive yet easy-to-digest overview of the vehicle.
+Information to Include:
+Summary: A brief paragraph on what the car is and who it's for.
+Pros: List 3-4 key strengths (e.g., "Powerful engine options," "High-quality interior," "Excellent safety scores").
+Cons: List 3-4 key weaknesses (e.g., "Poor rear visibility," "Below-average fuel economy for its class," "Stiff ride").
+Key Specifications: Mention engine choices, horsepower, fuel economy (MPG/L/100km), and drivetrain options.
+Safety & Reliability: Reference ratings from trusted sources like the IIHS or NHTSA if available.
+Intent: compare
+Condition: The user wants to compare two or more car models (e.g., "Honda Civic vs. Toyota Corolla," "Compare the F-150 and the Silverado").
+Action: Create a structured, direct comparison. A side-by-side table is highly effective. After the table, provide a concluding summary.
+Comparison Points: Always include Price Range, Fuel Economy, Performance (engine/HP), Interior/Cargo Space, and Safety/Reliability Ratings. Add other points as relevant (e.g., Towing Capacity for trucks, EV Range for electric cars).
+Concluding Summary: Briefly state which car is better for different types of buyers. (e.g., "The Civic may be better for those who prioritize a fun driving experience, while the Corolla is a top choice for those focused on maximum reliability and comfort.")
+Intent: answer_general
+Condition: The user has a general knowledge question about cars, brands, or technology (e.g., "What's the difference between a hybrid and a PHEV?", "Are Kia cars reliable?", "What is a CVT?").
+Action: Provide a clear, accurate, and simple explanation. Avoid overly technical jargon. Your goal is to educate the user.
+
+Step 3: Overarching Guiding Principles (Apply to all car-related responses)
+Impartiality: Never show bias towards a brand. Always present a balanced view.
+Safety First: Always prioritize safety. Highlight vehicles with strong safety ratings.
+Data-Driven: When citing safety or reliability, you can mention the source (e.g., "According to the IIHS...").
+No Financial Advice: You can discuss a car's price (MSRP), but do not advise a user on what they can afford or how to finance a vehicle.
+Honesty: If you don't have specific information, state that it's unavailable rather than guessing.
+If the use say thank you or thank you for help. Then reply with welcome and ask they need more help of not.
+
+    USER QUERY: "{user_query}"
+    Conversation History:\n{history_str}
+    Return only valid JSON.
     """
-    )
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip().replace('```json', '').replace('```', '')
+        return json.loads(text)
+    except Exception as e:
+        st.error(f"An error occurred while determining the action: {e}")
+        return {"action": "error", "response": "Sorry, I had trouble understanding that. Could you rephrase?"}
 
-# LAYING OUT THE MIDDLE SECTION OF THE APP WITH THE MAPS
-row2_1, row2_2, row2_3, row2_4 = st.columns((2, 1, 1, 1))
+def extract_car_models(text):
+    pattern = r'(?:\b(?:about|buy|vs|compare|between|more on|tell me about|interested in|details on)\b)?[\s:,-]*([A-Z][a-z]+(?: [A-Z0-9][a-z0-9]*){0,3})'
+    return re.findall(pattern, text, flags=re.IGNORECASE)
 
-# SETTING THE ZOOM LOCATIONS FOR THE AIRPORTS
-la_guardia = [40.7900, -73.8700]
-jfk = [40.6650, -73.7821]
-newark = [40.7090, -74.1805]
-zoom_level = 12
-midpoint = mpoint(data["lat"], data["lon"])
 
-with row2_1:
-    st.write(
-        f"""**All New York City from {hour_selected}:00 and {(hour_selected + 1) % 24}:00**"""
-    )
-    map(filterdata(data, hour_selected), midpoint[0], midpoint[1], 11)
+def get_recommendations_and_analysis(full_context_query):
+    prompt = f"""
+    You're an expert AI Car Analyst. Recommend 3 cars based on the context and analyze them.
 
-with row2_2:
-    st.write("**La Guardia Airport**")
-    map(filterdata(data, hour_selected), la_guardia[0], la_guardia[1], zoom_level)
+    CONTEXT:
+    {full_context_query}
 
-with row2_3:
-    st.write("**JFK Airport**")
-    map(filterdata(data, hour_selected), jfk[0], jfk[1], zoom_level)
+    Datasets:
+    NEW US CARS (sampled), USED US CARS (sampled), USED EUROPEAN CARS (sampled)
 
-with row2_4:
-    st.write("**Newark Airport**")
-    map(filterdata(data, hour_selected), newark[0], newark[1], zoom_level)
+    1. Pick 3 cars matching budget & type (new/used).
+    2. For each, provide:
+      - Summary
+      - US New Price
+      - Avg US Used Price (within budget)
+      - Avg EU Used Price (within budget)
+    3. Respond in structured JSON as:
+    {{
+      "recommendations": [
+        {{
+          "make": "Toyota",
+          "model": "Camry",
+          "summary": "Reliable, fuel-efficient midsize sedan...",
+          "us_market": {{"new_car_price_usd": 24000, "average_used_price_usd": 19500}},
+          "europe_market": {{"average_used_price_eur": 17000}}
+        }},
+        ...
+      ]
+    }}
+    """
+    try:
+        # Note: In a real app, you'd pass these dataframes to the model.
+        # For now, we simulate this by having the data loaded in the app's context.
+        response = model.generate_content(prompt)
+        text = response.text.strip().replace('```json', '').replace('```', '')
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
 
-# CALCULATING DATA FOR THE HISTOGRAM
-chart_data = histdata(data, hour_selected)
+def compare_cars_with_ai(full_context_query):
+    prompt = f"""
+    You are a car expert AI. The user is trying to decide between two or more vehicles.
 
-# LAYING OUT THE HISTOGRAM SECTION
-st.write(
-    f"""**Breakdown of rides per minute between {hour_selected}:00 and {(hour_selected + 1) % 24}:00**"""
-)
+    Based on this conversation:
+    {full_context_query}
 
-st.altair_chart(
-    alt.Chart(chart_data)
-    .mark_area(
-        interpolate="step-after",
-    )
-    .encode(
-        x=alt.X("minute:Q", scale=alt.Scale(nice=False)),
-        y=alt.Y("pickups:Q"),
-        tooltip=["minute", "pickups"],
-    )
-    .configure_mark(opacity=0.2, color="red"),
-    use_container_width=True,
-)
+    Compare the models side-by-side in this structured JSON:
+    {{
+      "comparison": [
+        {{
+          "brand": "Tesla",
+          "summary": "Known for cutting-edge EVs with long range and advanced technology.",
+          "strengths": ["Long battery range", "Fast charging (Supercharger)", "Strong resale value"],
+          "weaknesses": ["Higher upfront cost", "Minimalist design may not appeal to everyone"]
+        }},
+        {{
+          "brand": "Ford",
+          "summary": "Offers practical EVs like the Mustang Mach-E and F-150 Lightning, blending traditional design with new tech.",
+          "strengths": ["Lower price entry", "Familiar interior", "Solid ride quality"],
+          "weaknesses": ["Fewer charging stations", "Range slightly lower than Tesla"]
+        }}
+      ]
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        clean = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(clean)
+    except Exception as e:
+        return {"error": str(e), "comparison": []}
+
+def analyze_specific_car_model(car_model):
+    prompt = f"""
+    You are an expert automotive analyst. Give a clear, concise analysis of the following car model:
+
+    Model: "{car_model}"
+
+    Your response must include:
+    - An overview of the vehicle
+    - Common pros and cons
+    - Target audience
+    - Typical market price range (if known)
+
+    Structure the output as JSON like this:
+    {{
+      "model": "Tesla Model Y",
+      "overview": "...",
+      "pros": [...],
+      "cons": [...],
+      "audience": "...",
+      "price_estimate_usd": "..."
+    }}
+    """
+    try:
+        response = model.generate_content(prompt)
+        text = response.text.strip().replace('```json', '').replace('```', '')
+        return json.loads(text)
+    except Exception as e:
+        return {"error": str(e)}
+
+# ==============================================================================
+# STEP 4: STREAMLIT CHAT INTERFACE
+# ==============================================================================
+
+st.title("🚗 Autovisory: AI Car Market Analyst")
+st.write("Your expert guide to the global car market. Ask me anything about cars!")
+
+# Initialize chat history in session state
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+# Display chat messages from history
+for message in st.session_state.history:
+    with st.chat_message(message["role"]):
+        st.markdown(message["parts"])
+
+# Accept user input
+if user_prompt := st.chat_input("What car are you looking for?"):
+    # Add user message to history and display it
+    st.session_state.history.append({"role": "user", "parts": user_prompt})
+    with st.chat_message("user"):
+        st.markdown(user_prompt)
+
+    # Get AI response
+    with st.chat_message("assistant"):
+        with st.spinner("Autovisory is thinking..."):
+            action_data = determine_next_action(st.session_state.history, user_prompt)
+            action = action_data.get("action")
+            response_text = ""
+
+            if action == "reject":
+                response_text = action_data.get("response", "I can only answer car-related questions.")
+                st.markdown(response_text)
+
+            elif action == "clarify":
+                response_text = action_data.get("response", "I need more details to help you. What's your budget and primary use case?")
+                st.markdown(response_text)
+
+            elif action == "answer_general":
+                 response_text = action_data.get("response", "That's a great question! Let me explain...")
+                 st.markdown(response_text)
+
+            elif action == "recommend":
+                full_context = "\n".join([f"{msg['role']}: {msg['parts']}" for msg in st.session_state.history])
+                recs = get_recommendations_and_analysis(full_context)
+                if recs.get("recommendations"):
+                    response_text = "Based on your preferences, here are 3 solid options:"
+                    st.markdown(response_text)
+                    for r in recs["recommendations"]:
+                        st.markdown(f"#### 🚗 **{r['make']} {r['model']}**")
+                        st.markdown(f"**Summary**: {r['summary']}")
+                        us_market = r.get('us_market', {})
+                        eu_market = r.get('europe_market', {})
+                        st.markdown(f"**Prices:**")
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("New (US)", f"${us_market.get('new_car_price_usd', 'N/A'):,}", delta_color="off")
+                        col2.metric("Used (US)", f"${us_market.get('average_used_price_usd', 'N/A'):,}", delta_color="off")
+                        col3.metric("Used (EU)", f"€{eu_market.get('average_used_price_eur', 'N/A'):,}", delta_color="off")
+                else:
+                    response_text = "Sorry, I couldn't find good options with the provided details. Could you try rephrasing?"
+                    st.markdown(response_text)
+
+            elif action == "analyze":
+                candidates = extract_car_models(user_prompt)
+                model_name = candidates[0] if candidates else ""
+                analysis = analyze_specific_car_model(model_name)
+                if analysis.get("model"):
+                    response_text = f"Here's a detailed analysis of the **{analysis['model']}**:"
+                    st.markdown(response_text)
+                    st.markdown(f"**📘 Overview:** {analysis['overview']}")
+                    st.markdown(f"**✅ Pros:** {', '.join(analysis['pros'])}")
+                    st.markdown(f"**⚠️ Cons:** {', '.join(analysis['cons'])}")
+                    st.markdown(f"**👥 Ideal For:** {analysis['audience']}")
+                    st.metric("Estimated Price", analysis['price_estimate_usd'])
+                else:
+                    response_text = "Sorry, I couldn't find detailed information for that specific model."
+                    st.markdown(response_text)
+
+            elif action == "compare":
+                 full_context = "\n".join([f"{msg['role']}: {msg['parts']}" for msg in st.session_state.history])
+                 result = compare_cars_with_ai(full_context)
+                 if result.get("comparison"):
+                     response_text = "Here's a comparison of your choices:"
+                     st.markdown(response_text)
+                     for car in result["comparison"]:
+                         with st.expander(f"🚘 **{car['brand']}**"):
+                             st.markdown(f"**📝 Summary:** {car['summary']}")
+                             st.markdown(f"**✅ Strengths:**\n" + "\n".join([f"- {s}" for s in car['strengths']]))
+                             st.markdown(f"**⚠️ Weaknesses:**\n" + "\n".join([f"- {w}" for w in car['weaknesses']]))
+                 else:
+                     response_text = "I couldn't generate a comparison. Please make sure you mention at least two cars."
+                     st.markdown(response_text)
+
+            else:
+                response_text = action_data.get("response", "I'm not sure how to respond to that. Please try another question.")
+                st.markdown(response_text)
+
+            # Add AI response to history
+            st.session_state.history.append({"role": "assistant", "parts": response_text})
